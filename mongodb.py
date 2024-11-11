@@ -25,3 +25,7 @@ def get_views():
 
 def delete_view(view_id):
     wlcollection.delete_one({"view_id": view_id})
+
+def get_views_by_type(view_type):
+    """Fetch views from MongoDB based on view_type ('sell' or 'buy')."""
+    return list(wlcollection.find({"view_type": view_type}))

@@ -9,7 +9,7 @@ import pyperclip
 import chat_exporter
 import io
 import uuid
-from mongodb import save_view, delete_view, get_views
+from mongodb import save_view, delete_view, get_views, get_views_by_type
 
 
 
@@ -45,48 +45,6 @@ allowed_roles = [1280532531313246229, 1280532531313246228, 1280532531313246230]
 async def on_ready():
     bot.add_view(TicketView())
 
-    views = get_views()
-    for view_data in views:
-        # Check if it's a Buy or Sell view using a 'view_type' field
-        if view_data.get('view_type') == 'buy':
-            view = BuyButtonView(
-                view_id=view_data['view_id'],
-                item_name=view_data['item_name'],
-                chain=view_data['chain'],
-                pricetype=view_data['pricetype'],
-                price=view_data['price'],
-                payment=view_data['payment'],
-                type=view_data['type'],
-                specific=view_data['specific'],
-                quantity=view_data['quantity'],
-                collateral=view_data['collateral'],
-                project_link=view_data['project_link'],
-                message_link=view_data['message_link'],
-                user=bot.get_user(view_data['user_id'])
-            )
-        elif view_data.get('view_type') == 'sell':
-            view = SellButtonView(
-                view_id=view_data['view_id'],
-                item_name=view_data['item_name'],
-                chain=view_data['chain'],
-                pricetype=view_data['pricetype'],
-                price=view_data['price'],
-                payment=view_data['payment'],
-                type=view_data['type'],
-                specific=view_data['specific'],
-                quantity=view_data['quantity'],
-                collateral=view_data['collateral'],
-                project_link=view_data['project_link'],
-                message_link=view_data['message_link'],
-                user=bot.get_user(view_data['user_id'])
-            )
-        else:
-            print(f"Unknown view type for view_id: {view_data['view_id']}")
-            continue
-        
-        # Add the view to the bot
-        bot.add_view(view)
-
     print(f"{t}{Fore.LIGHTBLUE_EX} | Ready and online - {bot.user.display_name}\n{Fore.RESET}")
     keep_guild_ids = [979461945138745385, 1280532531258851338] #first wasp second project wl
 
@@ -108,9 +66,62 @@ async def on_ready():
         print(f"{t}{Fore.LIGHTBLUE_EX} | {bot.user.display_name} is in {guild_count} guilds.\n{Fore.RESET}")
 
         await bot.change_presence(activity=discord.Activity(type=discord.ActivityType.listening, name=f"/help")) 
+        await load_persistent_views()
 
     except Exception as e:
         print(e)
+
+
+async def load_persistent_views():
+
+    try:
+        # Load all saved sell views
+        sell_views = get_views_by_type("sell")
+
+        for view_data in sell_views:
+            # Create a SellButtonView instance from the stored data
+            sell_view = SellButtonView.from_dict(view_data)
+
+            # Fetch the original message in Discord to re-bind the view
+            if sell_view.message_link:
+                try:
+                    guild_id, channel_id, message_id = sell_view.message_link.split('/')[-3:]
+                    channel = bot.get_channel(int(channel_id))
+
+                    if channel:
+                        message = await channel.fetch_message(int(message_id))
+                        bot.add_view(sell_view, message_id=int(message_id))
+                        print(f"Added persistent Sell view for message: {message.jump_url}")
+                    else:
+                        print(f"Channel not found for message link: {sell_view.message_link}")
+                except Exception as e:
+                    print(f"Error re-adding Sell view: {e}")
+
+        # Load all saved buy views
+        buy_views = get_views_by_type("buy")
+
+        for view_data in buy_views:
+            # Create a BuyButtonView instance from the stored data
+            buy_view = BuyButtonView.from_dict(view_data)
+
+            # Fetch the original message in Discord to re-bind the view
+            if buy_view.message_link:
+                try:
+                    guild_id, channel_id, message_id = buy_view.message_link.split('/')[-3:]
+                    channel = bot.get_channel(int(channel_id))
+
+                    if channel:
+                        message = await channel.fetch_message(int(message_id))
+                        bot.add_view(buy_view, message_id=int(message_id))
+                        print(f"Added persistent Buy view for message: {message.jump_url}")
+                    else:
+                        print(f"Channel not found for message link: {buy_view.message_link}")
+                except Exception as e:
+                    print(f"Error re-adding Buy view: {e}")
+
+    except Exception as e:
+        print(f"Failed to load persistent views: {e}")
+
 
 
 @bot.event
@@ -541,43 +552,277 @@ class QuickBuyModal(discord.ui.Modal):
         await interaction.followup.send(f"Your ticket has been created: {channel.mention}", ephemeral=True)
 
 
+class SellButtonView(discord.ui.View):
+    def __init__(self, item_name, chain, pricetype, price, payment, type, specific, quantity, collateral, project_link, message_link=None, user=None, view_id=None,view_type="sell",):
+        super().__init__(timeout=None)
+        self.item_name = item_name
+        self.chain = chain
+        self.pricetype = pricetype
+        self.price = price
+        self.payment = payment
+        self.type = type
+        self.specific = specific
+        self.quantity = quantity
+        self.collateral = collateral
+        self.project_link  = project_link
+        self.message_link = message_link
+        self.user = user
+        self.view_id = view_id or str(uuid.uuid4())
+        self.view_type = view_type
+
+    
+    def to_dict(self):
+        return {
+            "view_id": self.view_id,
+            "item_name": self.item_name,
+            "chain": self.chain,
+            "pricetype": self.pricetype,
+            "price": self.price,
+            "payment": self.payment,
+            "type": self.type,
+            "specific": self.specific,
+            "quantity": self.quantity,
+            "collateral": self.collateral,
+            "project_link": self.project_link,
+            "message_link": self.message_link,
+            "user_id": self.user.id if self.user else None,
+            "view_type": self.view_type,
+        }
+
+    @classmethod
+    def from_dict(cls, data):
+        return cls(
+            item_name=data['item_name'],
+            chain=data['chain'],
+            pricetype=data['pricetype'],
+            price=data['price'],
+            payment=data['payment'],
+            type=data['type'],
+            specific=data['specific'],
+            quantity=data['quantity'],
+            collateral=data['collateral'],
+            project_link=data['project_link'],
+            message_link=data.get('message_link'),
+            user=None,  # This can be fetched separately using user_id if needed
+            view_id=data['view_id'],
+            view_type=data.get('view_type', 'sell')
+        )
+
+
+    @discord.ui.button(label="Make Offer", style=discord.ButtonStyle.primary, custom_id="make_offer")
+    async def make_offer(self, button: discord.ui.Button, interaction: discord.Interaction):
+        await interaction.response.send_modal(MakeOfferSellModal(self.item_name, self.chain, self.pricetype, self.price, self.payment, self.type, self.specific, self.quantity, self.collateral, self.project_link, self.message_link))
+
+    @discord.ui.button(label="Quick Buy", style=discord.ButtonStyle.success, custom_id="quick_buy")
+    async def quick_buy(self, button: discord.ui.Button, interaction: discord.Interaction):
+        await interaction.response.send_modal(QuickBuyModal(self.item_name, self.chain, self.pricetype, self.price, self.payment, self.type, self.specific, self.quantity, self.collateral, self.project_link,  self.message_link))
+
+    @discord.ui.button(label="Delist", style=discord.ButtonStyle.danger, custom_id="delist")
+    async def delist(self, button: discord.ui.Button, interaction: discord.Interaction):
+        if any(role.id in allowed_roles for role in interaction.user.roles):
+            if self.message_link:
+                try:
+                    guild_id, channel_id, message_id = self.message_link.split('/')[-3:]
+                    channel = interaction.guild.get_channel(int(channel_id))
+                    if channel:
+                        message = await channel.fetch_message(int(message_id))
+                        await message.delete()
+                        await interaction.response.send_message("The listing has been successfully delisted.", ephemeral=True)
+                    else:
+                        await interaction.response.send_message("Could not find the channel to delist the item.", ephemeral=True)
+                except Exception as e:
+                    await interaction.response.send_message(f"An error occurred while trying to delist the item: {e}", ephemeral=True)
+            else:
+                await interaction.response.send_message("No message link found to delist the item.", ephemeral=True)
+        else:
+            await interaction.response.send_message("You do not have sufficient permissions", ephemeral=True)
+
+    @discord.ui.button(label="👁️ View Seller", style=discord.ButtonStyle.secondary, custom_id="view_seller")
+    async def view_seller(self, button: discord.ui.Button, interaction: discord.Interaction):
+        if any(role.id in allowed_roles for role in interaction.user.roles):
+            user = self.user 
+            guild = interaction.guild  
+            member = guild.get_member(user.id) if guild else None  
+
+        
+            embed = discord.Embed(title="Seller Information", color=discord.Color.blue())
+            embed.add_field(name="Username", value=f"{user.name}#{user.discriminator}", inline=True)
+            embed.add_field(name="User ID", value=user.id, inline=True)
+            embed.add_field(name="Account Created On", value=user.created_at.strftime("%Y-%m-%d"), inline=True)
+
+            if member:  
+                embed.add_field(name="Status", value=member.status, inline=True)
+                embed.add_field(name="Server Nickname", value=member.nick or "None", inline=True)
+                embed.add_field(name="Joined Server On", value=member.joined_at.strftime("%Y-%m-%d"), inline=True)
+
+                roles = [role.mention for role in member.roles if role.name != "@everyone"]
+                embed.add_field(name="Roles", value=", ".join(roles) if roles else "No Roles", inline=False)
+
+            embed.set_thumbnail(url=user.avatar.url)  
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+        else:
+            await interaction.response.send_message("You do not have sufficient permissions", ephemeral=True)
+
+
+class BuyButtonView(discord.ui.View):
+    def __init__(self, item_name, chain, pricetype, price, payment, type, specific, quantity, collateral, project_link, message_link= None, user=None, view_id=None,view_type="buy",):
+        super().__init__(timeout=None)
+        self.item_name = item_name
+        self.chain = chain
+        self.pricetype = pricetype
+        self.price = price
+        self.payment = payment
+        self.type = type
+        self.specific = specific
+        self.quantity = quantity
+        self.collateral = collateral
+        self.project_link  = project_link
+        self.message_link = message_link
+        self.user = user
+        self.view_id = view_id or str(uuid.uuid4())
+        self.view_type = view_type
+    
+    
+    def to_dict(self):
+        return {
+            "view_id": self.view_id,
+            "item_name": self.item_name,
+            "chain": self.chain,
+            "pricetype": self.pricetype,
+            "price": self.price,
+            "payment": self.payment,
+            "type": self.type,
+            "specific": self.specific,
+            "quantity": self.quantity,
+            "collateral": self.collateral,
+            "project_link": self.project_link,
+            "message_link": self.message_link,
+            "user_id": self.user.id if self.user else None,
+            "view_type": self.view_type,
+        }
+
+    @classmethod
+    def from_dict(cls, data):
+        return cls(
+            item_name=data['item_name'],
+            chain=data['chain'],
+            pricetype=data['pricetype'],
+            price=data['price'],
+            payment=data['payment'],
+            type=data['type'],
+            specific=data['specific'],
+            quantity=data['quantity'],
+            collateral=data['collateral'],
+            project_link=data['project_link'],
+            message_link=data.get('message_link'),
+            user=None,  # This can be fetched separately using user_id if needed
+            view_id=data['view_id'],
+            view_type=data.get('view_type', 'buy')
+        )
+
+    @discord.ui.button(label="Make Offer", style=discord.ButtonStyle.primary, custom_id="make_offer")
+    async def make_offer(self, button: discord.ui.Button, interaction: discord.Interaction):
+        await interaction.response.send_modal(MakeOfferBuyModal(self.item_name, self.chain, self.pricetype, self.price, self.payment, self.type, self.specific, self.quantity, self.collateral, self.project_link,self.message_link))
+
+    @discord.ui.button(label="Quick Sell", style=discord.ButtonStyle.success, custom_id="quick_sell")
+    async def quick_sell(self, button: discord.ui.Button, interaction: discord.Interaction):
+        await interaction.response.send_modal(QuickSellModal(self.item_name, self.chain, self.pricetype, self.price, self.payment, self.type, self.specific, self.quantity, self.collateral, self.project_link, self.message_link))
+
+    @discord.ui.button(label="Delist", style=discord.ButtonStyle.danger, custom_id="delist")
+    async def delist(self, button: discord.ui.Button, interaction: discord.Interaction):
+        if any(role.id in allowed_roles for role in interaction.user.roles):
+            if self.message_link:
+                try:
+                    guild_id, channel_id, message_id = self.message_link.split('/')[-3:]
+                    channel = interaction.guild.get_channel(int(channel_id))
+                    if channel:
+                        message = await channel.fetch_message(int(message_id))
+                        await message.delete()
+                        await interaction.response.send_message("The listing has been successfully delisted.", ephemeral=True)
+                    else:
+                        await interaction.response.send_message("Could not find the channel to delist the item.", ephemeral=True)
+                except Exception as e:
+                    await interaction.response.send_message(f"An error occurred while trying to delist the item: {e}", ephemeral=True)
+            else:
+                await interaction.response.send_message("No message link found to delist the item.", ephemeral=True)
+        else:
+            await interaction.response.send_message("You do not have sufficient permissions", ephemeral=True)
+
+    @discord.ui.button(label="👁️ View Seller", style=discord.ButtonStyle.secondary, custom_id="view_seller")
+    async def view_seller(self, button: discord.ui.Button, interaction: discord.Interaction):
+        if any(role.id in allowed_roles for role in interaction.user.roles):
+            user = self.user  
+            guild = interaction.guild  
+            member = guild.get_member(user.id) if guild else None  
+
+            
+            embed = discord.Embed(title="Seller Information", color=discord.Color.blue())
+            embed.add_field(name="Username", value=f"{user.name}#{user.discriminator}", inline=True)
+            embed.add_field(name="User ID", value=user.id, inline=True)
+            embed.add_field(name="Account Created On", value=user.created_at.strftime("%Y-%m-%d"), inline=True)
+
+            if member:  
+                embed.add_field(name="Status", value=member.status, inline=True)
+                embed.add_field(name="Server Nickname", value=member.nick or "None", inline=True)
+                embed.add_field(name="Joined Server On", value=member.joined_at.strftime("%Y-%m-%d"), inline=True)
+                roles = [role.mention for role in member.roles if role.name != "@everyone"]
+                embed.add_field(name="Roles", value=", ".join(roles) if roles else "No Roles", inline=False)
+
+            embed.set_thumbnail(url=user.avatar.url)
+
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+        else:
+            await interaction.response.send_message("You do not have sufficient permissions", ephemeral=True)
+
 class ConfirmSellView(discord.ui.View):
-    def __init__(self, embed, view):
+    def __init__(self, embed, view: SellButtonView):
         super().__init__()
         self.embed = embed
-        self.view = view
+        self.sell_view = view 
 
     @discord.ui.button(label="Confirm", style=discord.ButtonStyle.green)
     async def confirm_button(self, button: discord.ui.Button, interaction: discord.Interaction):
         user = interaction.user
         await interaction.response.edit_message(content="Your listing has been posted!", embed=None, view=None)
        
-        message = await interaction.channel.send(embed=self.embed, view=self.view)
+        message = await interaction.channel.send(embed=self.embed, view=self.sell_view)
         guild_id = interaction.guild.id
         channel_id = interaction.channel.id
         message_id = message.id
         message_link = f"https://discord.com/channels/{guild_id}/{channel_id}/{message_id}"
-        self.view.message_link = message_link
-        self.view.user = user
+        self.sell_view.message_link = message_link
+        self.sell_view.user = user
+
+        # Convert SellButtonView to a dictionary for saving
+        data = self.sell_view.to_dict()
+        save_view(data)  # Save the data in MongoDB
+
+        print("SellButtonView data saved to MongoDB:", data)
 
 class ConfirmBuyView(discord.ui.View):
-    def __init__(self, embed, view):
+    def __init__(self, embed, view:BuyButtonView):
         super().__init__(timeout=None)
         self.embed = embed
-        self.view = view
+        self.buy_view = view 
 
     @discord.ui.button(label="Confirm", style=discord.ButtonStyle.green)
     async def confirm_button(self, button: discord.ui.Button, interaction: discord.Interaction):
         user = interaction.user
         await interaction.response.edit_message(content="Your listing has been posted!", embed=None, view=None)
        
-        message = await interaction.channel.send(embed=self.embed, view=self.view)
+        message = await interaction.channel.send(embed=self.embed, view=self.buy_view)
         guild_id = interaction.guild.id
         channel_id = interaction.channel.id
         message_id = message.id
         message_link = f"https://discord.com/channels/{guild_id}/{channel_id}/{message_id}"
-        self.view.message_link = message_link
-        self.view.user = user
+        self.buy_view.message_link = message_link
+        self.buy_view.user = user
+        
+        # Convert SellButtonView to a dictionary for saving
+        data = self.buy_view.to_dict()
+        save_view(data)  # Save the data in MongoDB
+
+        print("BuyButtonView data saved to MongoDB:", data)
 
 class TicketButtonView(discord.ui.View):
     def __init__(self, message_link=None, item_name=None, price_input = None,payment=None, type=None, specific = None,quantity=None,collateral=None):
@@ -675,192 +920,6 @@ class TicketButtonView(discord.ui.View):
 
         
 
-
-class SellButtonView(discord.ui.View):
-    def __init__(self, item_name, chain, pricetype, price, payment, type, specific, quantity, collateral, project_link, message_link=None, user=None, view_id=None):
-        super().__init__(timeout=None)
-        self.item_name = item_name
-        self.chain = chain
-        self.pricetype = pricetype
-        self.price = price
-        self.payment = payment
-        self.type = type
-        self.specific = specific
-        self.quantity = quantity
-        self.collateral = collateral
-        self.project_link  = project_link
-        self.message_link = message_link
-        self.user = user
-        self.view_id = view_id or str(uuid.uuid4())
-        self.save_to_db()
-
-    def save_to_db(self):
-        """Save the current view data to MongoDB."""
-        data = {
-            "view_id": self.view_id,
-            "view_type": "sell",
-            "item_name": self.item_name,
-            "chain": self.chain,
-            "pricetype": self.pricetype,
-            "price": self.price,
-            "payment": self.payment,
-            "type": self.type,
-            "specific": self.specific,
-            "quantity": self.quantity,
-            "collateral": self.collateral,
-            "project_link": self.project_link,
-            "message_link": self.message_link,
-            "user_id": self.user.id if self.user else None
-            
-        }
-        save_view(data)
-
-
-    @discord.ui.button(label="Make Offer", style=discord.ButtonStyle.primary, custom_id="make_offer")
-    async def make_offer(self, button: discord.ui.Button, interaction: discord.Interaction):
-        await interaction.response.send_modal(MakeOfferSellModal(self.item_name, self.chain, self.pricetype, self.price, self.payment, self.type, self.specific, self.quantity, self.collateral, self.project_link, self.message_link))
-
-    @discord.ui.button(label="Quick Buy", style=discord.ButtonStyle.success, custom_id="quick_buy")
-    async def quick_buy(self, button: discord.ui.Button, interaction: discord.Interaction):
-        await interaction.response.send_modal(QuickBuyModal(self.item_name, self.chain, self.pricetype, self.price, self.payment, self.type, self.specific, self.quantity, self.collateral, self.project_link,  self.message_link))
-
-    @discord.ui.button(label="Delist", style=discord.ButtonStyle.danger, custom_id="delist")
-    async def delist(self, button: discord.ui.Button, interaction: discord.Interaction):
-        if any(role.id in allowed_roles for role in interaction.user.roles):
-            if self.message_link:
-                try:
-                    guild_id, channel_id, message_id = self.message_link.split('/')[-3:]
-                    channel = interaction.guild.get_channel(int(channel_id))
-                    if channel:
-                        message = await channel.fetch_message(int(message_id))
-                        await message.delete()
-                        await interaction.response.send_message("The listing has been successfully delisted.", ephemeral=True)
-                    else:
-                        await interaction.response.send_message("Could not find the channel to delist the item.", ephemeral=True)
-                except Exception as e:
-                    await interaction.response.send_message(f"An error occurred while trying to delist the item: {e}", ephemeral=True)
-            else:
-                await interaction.response.send_message("No message link found to delist the item.", ephemeral=True)
-        else:
-            await interaction.response.send_message("You do not have sufficient permissions", ephemeral=True)
-
-    @discord.ui.button(label="👁️ View Seller", style=discord.ButtonStyle.secondary, custom_id="view_seller")
-    async def view_seller(self, button: discord.ui.Button, interaction: discord.Interaction):
-        if any(role.id in allowed_roles for role in interaction.user.roles):
-            user = self.user 
-            guild = interaction.guild  
-            member = guild.get_member(user.id) if guild else None  
-
-        
-            embed = discord.Embed(title="Seller Information", color=discord.Color.blue())
-            embed.add_field(name="Username", value=f"{user.name}#{user.discriminator}", inline=True)
-            embed.add_field(name="User ID", value=user.id, inline=True)
-            embed.add_field(name="Account Created On", value=user.created_at.strftime("%Y-%m-%d"), inline=True)
-
-            if member:  
-                embed.add_field(name="Status", value=member.status, inline=True)
-                embed.add_field(name="Server Nickname", value=member.nick or "None", inline=True)
-                embed.add_field(name="Joined Server On", value=member.joined_at.strftime("%Y-%m-%d"), inline=True)
-
-                roles = [role.mention for role in member.roles if role.name != "@everyone"]
-                embed.add_field(name="Roles", value=", ".join(roles) if roles else "No Roles", inline=False)
-
-            embed.set_thumbnail(url=user.avatar.url)  
-            await interaction.response.send_message(embed=embed, ephemeral=True)
-        else:
-            await interaction.response.send_message("You do not have sufficient permissions", ephemeral=True)
-
-
-class BuyButtonView(discord.ui.View):
-    def __init__(self, item_name, chain, pricetype, price, payment, type, specific, quantity, collateral, project_link, message_link= None, user=None, view_id=None):
-        super().__init__(timeout=None)
-        self.item_name = item_name
-        self.chain = chain
-        self.pricetype = pricetype
-        self.price = price
-        self.payment = payment
-        self.type = type
-        self.specific = specific
-        self.quantity = quantity
-        self.collateral = collateral
-        self.project_link  = project_link
-        self.message_link = message_link
-        self.user = user
-        self.view_id = view_id or str(uuid.uuid4())
-        self.save_to_db()
-    
-    def save_to_db(self):
-        data = {
-            "view_id": self.view_id,
-            "view_type": "buy", 
-            "item_name": self.item_name,
-            "chain": self.chain,
-            "pricetype": self.pricetype,
-            "price": self.price,
-            "payment": self.payment,
-            "type": self.type,
-            "specific": self.specific,
-            "quantity": self.quantity,
-            "collateral": self.collateral,
-            "project_link": self.project_link,
-            "message_link": self.message_link,
-            "user_id": self.user.id if self.user else None
-        }
-        save_view(data)
-
-    @discord.ui.button(label="Make Offer", style=discord.ButtonStyle.primary, custom_id="make_offer")
-    async def make_offer(self, button: discord.ui.Button, interaction: discord.Interaction):
-        await interaction.response.send_modal(MakeOfferBuyModal(self.item_name, self.chain, self.pricetype, self.price, self.payment, self.type, self.specific, self.quantity, self.collateral, self.project_link,self.message_link))
-
-    @discord.ui.button(label="Quick Sell", style=discord.ButtonStyle.success, custom_id="quick_sell")
-    async def quick_sell(self, button: discord.ui.Button, interaction: discord.Interaction):
-        await interaction.response.send_modal(QuickSellModal(self.item_name, self.chain, self.pricetype, self.price, self.payment, self.type, self.specific, self.quantity, self.collateral, self.project_link, self.message_link))
-
-    @discord.ui.button(label="Delist", style=discord.ButtonStyle.danger, custom_id="delist")
-    async def delist(self, button: discord.ui.Button, interaction: discord.Interaction):
-        if any(role.id in allowed_roles for role in interaction.user.roles):
-            if self.message_link:
-                try:
-                    guild_id, channel_id, message_id = self.message_link.split('/')[-3:]
-                    channel = interaction.guild.get_channel(int(channel_id))
-                    if channel:
-                        message = await channel.fetch_message(int(message_id))
-                        await message.delete()
-                        await interaction.response.send_message("The listing has been successfully delisted.", ephemeral=True)
-                    else:
-                        await interaction.response.send_message("Could not find the channel to delist the item.", ephemeral=True)
-                except Exception as e:
-                    await interaction.response.send_message(f"An error occurred while trying to delist the item: {e}", ephemeral=True)
-            else:
-                await interaction.response.send_message("No message link found to delist the item.", ephemeral=True)
-        else:
-            await interaction.response.send_message("You do not have sufficient permissions", ephemeral=True)
-
-    @discord.ui.button(label="👁️ View Seller", style=discord.ButtonStyle.secondary, custom_id="view_seller")
-    async def view_seller(self, button: discord.ui.Button, interaction: discord.Interaction):
-        if any(role.id in allowed_roles for role in interaction.user.roles):
-            user = self.user  
-            guild = interaction.guild  
-            member = guild.get_member(user.id) if guild else None  
-
-            
-            embed = discord.Embed(title="Seller Information", color=discord.Color.blue())
-            embed.add_field(name="Username", value=f"{user.name}#{user.discriminator}", inline=True)
-            embed.add_field(name="User ID", value=user.id, inline=True)
-            embed.add_field(name="Account Created On", value=user.created_at.strftime("%Y-%m-%d"), inline=True)
-
-            if member:  
-                embed.add_field(name="Status", value=member.status, inline=True)
-                embed.add_field(name="Server Nickname", value=member.nick or "None", inline=True)
-                embed.add_field(name="Joined Server On", value=member.joined_at.strftime("%Y-%m-%d"), inline=True)
-                roles = [role.mention for role in member.roles if role.name != "@everyone"]
-                embed.add_field(name="Roles", value=", ".join(roles) if roles else "No Roles", inline=False)
-
-            embed.set_thumbnail(url=user.avatar.url)
-
-            await interaction.response.send_message(embed=embed, ephemeral=True)
-        else:
-            await interaction.response.send_message("You do not have sufficient permissions", ephemeral=True)
 
 
 
