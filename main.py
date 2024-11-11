@@ -8,6 +8,8 @@ import datetime
 import pyperclip
 import chat_exporter
 import io
+import uuid
+from mongodb import save_view, delete_view, get_views
 
 
 
@@ -42,7 +44,49 @@ allowed_roles = [1280532531313246229, 1280532531313246228, 1280532531313246230]
 @bot.event
 async def on_ready():
     bot.add_view(TicketView())
-    bot.add_view(TicketButtonView())
+
+    views = get_views()
+    for view_data in views:
+        # Check if it's a Buy or Sell view using a 'view_type' field
+        if view_data.get('view_type') == 'buy':
+            view = BuyButtonView(
+                view_id=view_data['view_id'],
+                item_name=view_data['item_name'],
+                chain=view_data['chain'],
+                pricetype=view_data['pricetype'],
+                price=view_data['price'],
+                payment=view_data['payment'],
+                type=view_data['type'],
+                specific=view_data['specific'],
+                quantity=view_data['quantity'],
+                collateral=view_data['collateral'],
+                project_link=view_data['project_link'],
+                message_link=view_data['message_link'],
+                user=bot.get_user(view_data['user_id'])
+            )
+        elif view_data.get('view_type') == 'sell':
+            view = SellButtonView(
+                view_id=view_data['view_id'],
+                item_name=view_data['item_name'],
+                chain=view_data['chain'],
+                pricetype=view_data['pricetype'],
+                price=view_data['price'],
+                payment=view_data['payment'],
+                type=view_data['type'],
+                specific=view_data['specific'],
+                quantity=view_data['quantity'],
+                collateral=view_data['collateral'],
+                project_link=view_data['project_link'],
+                message_link=view_data['message_link'],
+                user=bot.get_user(view_data['user_id'])
+            )
+        else:
+            print(f"Unknown view type for view_id: {view_data['view_id']}")
+            continue
+        
+        # Add the view to the bot
+        bot.add_view(view)
+
     print(f"{t}{Fore.LIGHTBLUE_EX} | Ready and online - {bot.user.display_name}\n{Fore.RESET}")
     keep_guild_ids = [979461945138745385, 1280532531258851338] #first wasp second project wl
 
@@ -461,11 +505,6 @@ class QuickBuyModal(discord.ui.Modal):
         embed.timestamp = datetime.datetime.now()
 
         await interaction.response.defer(ephemeral=True)
-
-
-        
-
-        # Get the category and channel where the tickets will be created
         category = discord.utils.get(interaction.guild.categories, name="Support Tickets")
         if category is None:
             await interaction.followup.send("The 'Tickets' category does not exist.", ephemeral=True)
@@ -499,7 +538,6 @@ class QuickBuyModal(discord.ui.Modal):
         await channel.send(embed=creationEmbed, view=TicketButtonView(self.message_link, self.item_name, self.price, self.payment,self.type, self.specific,self.quantity, self.collateral))
         await channel.send(embed=embed)
 
-        # Confirm to the user that the ticket has been created
         await interaction.followup.send(f"Your ticket has been created: {channel.mention}", ephemeral=True)
 
 
@@ -639,7 +677,7 @@ class TicketButtonView(discord.ui.View):
 
 
 class SellButtonView(discord.ui.View):
-    def __init__(self, item_name, chain, pricetype, price, payment, type, specific, quantity, collateral, project_link, message_link=None, user=None):
+    def __init__(self, item_name, chain, pricetype, price, payment, type, specific, quantity, collateral, project_link, message_link=None, user=None, view_id=None):
         super().__init__(timeout=None)
         self.item_name = item_name
         self.chain = chain
@@ -653,6 +691,30 @@ class SellButtonView(discord.ui.View):
         self.project_link  = project_link
         self.message_link = message_link
         self.user = user
+        self.view_id = view_id or str(uuid.uuid4())
+        self.save_to_db()
+
+    def save_to_db(self):
+        """Save the current view data to MongoDB."""
+        data = {
+            "view_id": self.view_id,
+            "view_type": "sell",
+            "item_name": self.item_name,
+            "chain": self.chain,
+            "pricetype": self.pricetype,
+            "price": self.price,
+            "payment": self.payment,
+            "type": self.type,
+            "specific": self.specific,
+            "quantity": self.quantity,
+            "collateral": self.collateral,
+            "project_link": self.project_link,
+            "message_link": self.message_link,
+            "user_id": self.user.id if self.user else None
+            
+        }
+        save_view(data)
+
 
     @discord.ui.button(label="Make Offer", style=discord.ButtonStyle.primary, custom_id="make_offer")
     async def make_offer(self, button: discord.ui.Button, interaction: discord.Interaction):
@@ -710,7 +772,7 @@ class SellButtonView(discord.ui.View):
 
 
 class BuyButtonView(discord.ui.View):
-    def __init__(self, item_name, chain, pricetype, price, payment, type, specific, quantity, collateral, project_link, message_link= None, user=None):
+    def __init__(self, item_name, chain, pricetype, price, payment, type, specific, quantity, collateral, project_link, message_link= None, user=None, view_id=None):
         super().__init__(timeout=None)
         self.item_name = item_name
         self.chain = chain
@@ -724,6 +786,27 @@ class BuyButtonView(discord.ui.View):
         self.project_link  = project_link
         self.message_link = message_link
         self.user = user
+        self.view_id = view_id or str(uuid.uuid4())
+        self.save_to_db()
+    
+    def save_to_db(self):
+        data = {
+            "view_id": self.view_id,
+            "view_type": "buy", 
+            "item_name": self.item_name,
+            "chain": self.chain,
+            "pricetype": self.pricetype,
+            "price": self.price,
+            "payment": self.payment,
+            "type": self.type,
+            "specific": self.specific,
+            "quantity": self.quantity,
+            "collateral": self.collateral,
+            "project_link": self.project_link,
+            "message_link": self.message_link,
+            "user_id": self.user.id if self.user else None
+        }
+        save_view(data)
 
     @discord.ui.button(label="Make Offer", style=discord.ButtonStyle.primary, custom_id="make_offer")
     async def make_offer(self, button: discord.ui.Button, interaction: discord.Interaction):
@@ -799,7 +882,6 @@ async def sell(
     project_link: str = discord.Option(str, "Link to the project"),
 ):
     embed = discord.Embed(
-        # title="Item Listed for Sale",
         description=(
             f"**Item:** {name}\n\n"
             f"**Chain:** {chain}\n\n"
@@ -838,7 +920,6 @@ async def sell(
     project_link: str = discord.Option(str, "Link to the project"),
 ):
     embed = discord.Embed(
-        # title="Item Listed for Sale",
         description=(
             f"**Item:** {name}\n\n"
             f"**Chain:** {chain}\n\n"
@@ -864,7 +945,6 @@ class TicketButton(discord.ui.Button):
         super().__init__(label="Create Ticket", style=discord.ButtonStyle.primary, custom_id="create_ticket")
 
     async def callback(self, interaction: discord.Interaction):
-        # Get the category where support ticket channels should be created
         category = discord.utils.get(interaction.guild.categories, name="Support Tickets")
         
         if category is None:
@@ -885,10 +965,9 @@ class TicketButton(discord.ui.Button):
             }
         )
         
-        # Confirm ticket creation to the user
         await interaction.response.send_message(f"Your support ticket has been created: {ticket_channel.mention}", ephemeral=True)
         
-        # Send a message in the ticket channel to indicate it was created
+        
         await ticket_channel.send(f"Hello {interaction.user.mention}, a member of our support team will be with you shortly.")
 
 class TicketView(discord.ui.View):
