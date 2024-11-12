@@ -9,7 +9,7 @@ import pyperclip
 import chat_exporter
 import io
 import uuid
-from mongodb import save_view, delete_view, get_views, get_views_by_type
+from mongodb import save_view, delete_view, get_views, get_views_by_type, fetch_view_from_db, delete_view_from_db
 
 
 
@@ -43,8 +43,6 @@ allowed_roles = [1280532531313246229, 1280532531313246228, 1280532531313246230]
 # runs when the bot is deployed/logged in
 @bot.event
 async def on_ready():
-    bot.add_view(TicketView())
-
     print(f"{t}{Fore.LIGHTBLUE_EX} | Ready and online - {bot.user.display_name}\n{Fore.RESET}")
     keep_guild_ids = [979461945138745385, 1280532531258851338] #first wasp second project wl
 
@@ -67,9 +65,40 @@ async def on_ready():
 
         await bot.change_presence(activity=discord.Activity(type=discord.ActivityType.listening, name=f"/help")) 
         await load_persistent_views()
+        await load_ticket_persistent_views()
+        bot.add_view(TicketView())
 
     except Exception as e:
         print(e)
+
+
+async def load_ticket_persistent_views():
+    try:
+        # Load all saved views
+        all_views = get_views()  # Assuming this fetches all views, including ticket views, with view_id
+
+        for view_data in all_views:
+            view_id = view_data.get("view_id")
+            if view_id:  # Only proceed if view_id is present
+                ticket_view = TicketButtonView(
+                    item_name=view_data.get("item_name"),
+                    price_input=view_data.get("price"),
+                    payment=view_data.get("payment"),
+                    type=view_data.get("type"),
+                    specific=view_data.get("specific"),
+                    quantity=view_data.get("quantity"),
+                    collateral=view_data.get("collateral"),
+                    message_link= view_data.get("message_link"),
+                    view_id=view_id
+                )
+
+                # Add the view directly without message binding
+                bot.add_view(ticket_view)  
+                print(f"Added persistent TicketButtonView with ID: {view_id}")
+
+    except Exception as e:
+        print(f"Failed to load persistent views: {e}")
+
 
 
 async def load_persistent_views():
@@ -264,7 +293,7 @@ class MakeOfferSellModal(discord.ui.Modal):
         await interaction.followup.send(f"Your ticket has been created: {channel.mention}", ephemeral=True)
 
 class MakeOfferBuyModal(discord.ui.Modal):
-    def __init__(self, item_name, chain, pricetype, price, payment, type, specific, quantity, collateral, project_link, message_link):
+    def __init__(self, item_name, chain, pricetype, price, payment, type, specific, quantity, collateral, project_link, message_link, view_id):
         super().__init__(title="Make an Offer")
         self.item_name = item_name
         self.chain = chain
@@ -277,6 +306,7 @@ class MakeOfferBuyModal(discord.ui.Modal):
         self.collateral = collateral
         self.project_link = project_link
         self.message_link = message_link
+        self.view_id = view_id
 
         self.price_input = discord.ui.InputText(
             label="Enter Valid Price", placeholder="Enter the price you wish to offer", style=discord.InputTextStyle.short
@@ -351,12 +381,12 @@ class MakeOfferBuyModal(discord.ui.Modal):
         mentions.append(f" <@&{moderator_role_id}>")
         mention_message = " ".join(mentions)
         await channel.send(mention_message)
-        await channel.send(embed=creationEmbed, view=TicketButtonView(self.message_link, self.item_name, self.price_input, self.payment,self.type, self.specific,self.quantity, self.collateral))
+        await channel.send(embed=creationEmbed, view=TicketButtonView(self.message_link, self.item_name, self.price_input, self.payment,self.type, self.specific,self.quantity, self.collateral, self.view_id))
         await channel.send(embed=embed)
         await interaction.followup.send(f"Your ticket has been created: {channel.mention}", ephemeral=True)
 
 class QuickSellModal(discord.ui.Modal):
-    def __init__(self, item_name, chain, pricetype, price, payment, type, specific, quantity, collateral, project_link, message_link):
+    def __init__(self, item_name, chain, pricetype, price, payment, type, specific, quantity, collateral, project_link, message_link, view_id):
         super().__init__(title="Confirm your order")
         self.item_name = item_name
         self.chain = chain
@@ -369,6 +399,7 @@ class QuickSellModal(discord.ui.Modal):
         self.collateral = collateral
         self.project_link = project_link
         self.message_link = message_link
+        self.view_id = view_id
 
         self.message_input = discord.ui.InputText(
             label="Message", value="Are you sure you want to buy this item?",required=True, style=discord.InputTextStyle.short
@@ -445,14 +476,14 @@ class QuickSellModal(discord.ui.Modal):
         mentions.append(f" <@&{moderator_role_id}>")
         mention_message = " ".join(mentions)
         await channel.send(mention_message)
-        await channel.send(embed=creationEmbed, view=TicketButtonView(self.message_link, self.item_name, self.price, self.payment,self.type, self.specific,self.quantity, self.collateral))
+        await channel.send(embed=creationEmbed, view=TicketButtonView(self.message_link, self.item_name, self.price, self.payment,self.type, self.specific,self.quantity, self.collateral,self.view_id))
         await channel.send(embed=embed)
 
         # Confirm to the user that the ticket has been created
         await interaction.followup.send(f"Your ticket has been created: {channel.mention}", ephemeral=True)
 
 class QuickBuyModal(discord.ui.Modal):
-    def __init__(self, item_name, chain, pricetype, price, payment, type, specific, quantity, collateral, project_link, message_link):
+    def __init__(self, item_name, chain, pricetype, price, payment, type, specific, quantity, collateral, project_link, message_link, view_id):
         super().__init__(title="Confirm your order")
         self.item_name = item_name
         self.chain = chain
@@ -465,6 +496,7 @@ class QuickBuyModal(discord.ui.Modal):
         self.collateral = collateral
         self.project_link = project_link
         self.message_link = message_link
+        self.view_id = view_id
 
         self.message_input = discord.ui.InputText(
             label="Message", value="Are you sure you want to buy this item?",required=True, style=discord.InputTextStyle.short
@@ -546,7 +578,7 @@ class QuickBuyModal(discord.ui.Modal):
         mentions.append(f" <@&{moderator_role_id}>")
         mention_message = " ".join(mentions)
         await channel.send(mention_message)
-        await channel.send(embed=creationEmbed, view=TicketButtonView(self.message_link, self.item_name, self.price, self.payment,self.type, self.specific,self.quantity, self.collateral))
+        await channel.send(embed=creationEmbed, view=TicketButtonView(self.message_link, self.item_name, self.price, self.payment,self.type, self.specific,self.quantity, self.collateral, self.view_id))
         await channel.send(embed=embed)
 
         await interaction.followup.send(f"Your ticket has been created: {channel.mention}", ephemeral=True)
@@ -611,11 +643,11 @@ class SellButtonView(discord.ui.View):
 
     @discord.ui.button(label="Make Offer", style=discord.ButtonStyle.primary, custom_id="make_offer")
     async def make_offer(self, button: discord.ui.Button, interaction: discord.Interaction):
-        await interaction.response.send_modal(MakeOfferSellModal(self.item_name, self.chain, self.pricetype, self.price, self.payment, self.type, self.specific, self.quantity, self.collateral, self.project_link, self.message_link))
+        await interaction.response.send_modal(MakeOfferSellModal(self.item_name, self.chain, self.pricetype, self.price, self.payment, self.type, self.specific, self.quantity, self.collateral, self.project_link, self.message_link, self.view_id))
 
     @discord.ui.button(label="Quick Buy", style=discord.ButtonStyle.success, custom_id="quick_buy")
     async def quick_buy(self, button: discord.ui.Button, interaction: discord.Interaction):
-        await interaction.response.send_modal(QuickBuyModal(self.item_name, self.chain, self.pricetype, self.price, self.payment, self.type, self.specific, self.quantity, self.collateral, self.project_link,  self.message_link))
+        await interaction.response.send_modal(QuickBuyModal(self.item_name, self.chain, self.pricetype, self.price, self.payment, self.type, self.specific, self.quantity, self.collateral, self.project_link,  self.message_link, self.view_id))
 
     @discord.ui.button(label="Delist", style=discord.ButtonStyle.danger, custom_id="delist")
     async def delist(self, button: discord.ui.Button, interaction: discord.Interaction):
@@ -628,6 +660,10 @@ class SellButtonView(discord.ui.View):
                         message = await channel.fetch_message(int(message_id))
                         await message.delete()
                         await interaction.response.send_message("The listing has been successfully delisted.", ephemeral=True)
+                        if self.view_id:
+                            print(self.view_id)
+                            delete_view_from_db(self.view_id)
+                            print(f"Deleted view with ID {self.view_id} from the database.")
                     else:
                         await interaction.response.send_message("Could not find the channel to delist the item.", ephemeral=True)
                 except Exception as e:
@@ -722,11 +758,11 @@ class BuyButtonView(discord.ui.View):
 
     @discord.ui.button(label="Make Offer", style=discord.ButtonStyle.primary, custom_id="make_offer")
     async def make_offer(self, button: discord.ui.Button, interaction: discord.Interaction):
-        await interaction.response.send_modal(MakeOfferBuyModal(self.item_name, self.chain, self.pricetype, self.price, self.payment, self.type, self.specific, self.quantity, self.collateral, self.project_link,self.message_link))
+        await interaction.response.send_modal(MakeOfferBuyModal(self.item_name, self.chain, self.pricetype, self.price, self.payment, self.type, self.specific, self.quantity, self.collateral, self.project_link,self.message_link, self.view_id))
 
     @discord.ui.button(label="Quick Sell", style=discord.ButtonStyle.success, custom_id="quick_sell")
     async def quick_sell(self, button: discord.ui.Button, interaction: discord.Interaction):
-        await interaction.response.send_modal(QuickSellModal(self.item_name, self.chain, self.pricetype, self.price, self.payment, self.type, self.specific, self.quantity, self.collateral, self.project_link, self.message_link))
+        await interaction.response.send_modal(QuickSellModal(self.item_name, self.chain, self.pricetype, self.price, self.payment, self.type, self.specific, self.quantity, self.collateral, self.project_link, self.message_link, self.view_id))
 
     @discord.ui.button(label="Delist", style=discord.ButtonStyle.danger, custom_id="delist")
     async def delist(self, button: discord.ui.Button, interaction: discord.Interaction):
@@ -739,6 +775,9 @@ class BuyButtonView(discord.ui.View):
                         message = await channel.fetch_message(int(message_id))
                         await message.delete()
                         await interaction.response.send_message("The listing has been successfully delisted.", ephemeral=True)
+                        if self.view_id:
+                            delete_view_from_db(self.view_id)
+                            print(f"Deleted view with ID {self.view_id} from the database.")
                     else:
                         await interaction.response.send_message("Could not find the channel to delist the item.", ephemeral=True)
                 except Exception as e:
@@ -825,7 +864,7 @@ class ConfirmBuyView(discord.ui.View):
         print("BuyButtonView data saved to MongoDB:", data)
 
 class TicketButtonView(discord.ui.View):
-    def __init__(self, message_link=None, item_name=None, price_input = None,payment=None, type=None, specific = None,quantity=None,collateral=None):
+    def __init__(self, message_link=None, item_name=None, price_input = None,payment=None, type=None, specific = None,quantity=None,collateral=None, view_id = None):
         super().__init__(timeout=None)
         self.message_link = message_link
         self.item_name = item_name
@@ -835,7 +874,9 @@ class TicketButtonView(discord.ui.View):
         self.specific = specific
         self.quantity = quantity
         self.collateral = collateral
+        self.view_id = view_id
 
+    
     @discord.ui.button(label="Close Ticket", style=discord.ButtonStyle.primary, custom_id="close_ticket")
     async def make_offer(self, button: discord.ui.Button, interaction: discord.Interaction):
         if any(role.id in allowed_roles for role in interaction.user.roles):
@@ -853,6 +894,7 @@ class TicketButtonView(discord.ui.View):
 
     @discord.ui.button(label="Mark as Sold", style=discord.ButtonStyle.danger, custom_id="mark_as_sold")
     async def mark_as_sold(self, button: discord.ui.Button, interaction: discord.Interaction):
+        print(self.view_id)
         if any(role.id in allowed_roles for role in interaction.user.roles):
             if self.message_link:
                 try:
@@ -869,7 +911,8 @@ class TicketButtonView(discord.ui.View):
                         await interaction.response.send_message("The item has been marked as sold, and the original listing has been updated.", ephemeral=True)
                         embed = discord.Embed( color=discord.Color.red())
                         embed.add_field(name="Item Name", value=self.item_name, inline=True)
-                        price_with_payment = f"{self.price_input.value} {self.payment}"
+                        price = self.price_input.value if isinstance(self.price_input, discord.ui.TextInput) else self.price_input
+                        price_with_payment = f"{price} {self.payment}"
                         embed.add_field(name="Price", value=price_with_payment, inline=True)
                         embed.add_field(name="Type", value=self.type, inline=True)
                         embed.add_field(name="Specifics", value=self.specific, inline=True)
@@ -884,6 +927,9 @@ class TicketButtonView(discord.ui.View):
                             await recent_sales_channel.send(embed=embed)
                         else:
                             await interaction.followup.send("The recent-sales channel could not be found.", ephemeral=True)
+                        if self.view_id:
+                            delete_view_from_db(self.view_id)
+                            print(f"Deleted view with ID {self.view_id} from the database.")
                     else:
                         await interaction.response.send_message("Could not find the channel for the original listing.", ephemeral=True)
                 except Exception as e:
