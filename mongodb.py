@@ -1,11 +1,10 @@
 import json
+import os
 from pymongo.mongo_client import MongoClient
 from pymongo.server_api import ServerApi
-with open('config.json', 'r') as file:
-    config = json.load(file)
 
 
-MONGO_URI  = config["MongoURI"]
+MONGO_URI  = os.getenv("MongoURI")
 
 client = MongoClient(MONGO_URI )
 

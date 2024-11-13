@@ -8,6 +8,9 @@ import datetime
 import pyperclip
 import chat_exporter
 import io
+import os
+from flask import Flask
+from threading import Thread
 import uuid
 from mongodb import save_view, delete_view, get_views, get_views_by_type, fetch_view_from_db, delete_view_from_db
 
@@ -30,13 +33,22 @@ t = f"{Fore.LIGHTYELLOW_EX}{ctime()}{Fore.RESET}"
 
 # probably best if you use a .env but I prefer to use json
 
-with open('config.json', 'r') as file:
-    config = json.load(file)
+app = Flask('')
 
-# Accessing individual values from the config
-bot_token = config["BOT_TOKEN"]
-bot_invite = config["BOT_INVITE"]
-moderator_role_id = config["Moderator_Role_ID"]
+@app.route('/')
+def home():
+    return "Bot is running!"
+
+def run():
+    app.run(host='0.0.0.0', port=8080)
+
+# Start Flask server in a separate thread
+Thread(target=run).start()
+
+
+bot_token = os.getenv("BOT_TOKEN")
+bot_invite = os.getenv("BOT_INVITE")
+moderator_role_id = int(os.getenv("MODERATOR_ROLE_ID"))
 allowed_roles = [1280532531313246229, 1280532531313246228, 1280532531313246230]
 # --------------------------------------------------------
 
@@ -52,13 +64,9 @@ async def on_ready():
             if guild.id in keep_guild_ids:
                 print(f"{Fore.RED}- {guild.id} (name: {guild.name}) [KEEPING]\n{Fore.RESET}")
                 guild_count += 1
-                # print(f"{Fore.YELLOW}Roles in {guild.name} (ID: {guild.id}):")
-                # for role in guild.roles:
-                #     print(f" - Role Name: {role.name}, Role ID: {role.id}")
-                # print(Fore.RESET)
             else:
                 print(f"{Fore.RED}- {guild.id} (name: {guild.name}) [LEAVING]\n{Fore.RESET}")
-                await guild.leave()  # Leave the guild
+                await guild.leave()
         
        
         print(f"{t}{Fore.LIGHTBLUE_EX} | {bot.user.display_name} is in {guild_count} guilds.\n{Fore.RESET}")
@@ -93,8 +101,7 @@ async def load_ticket_persistent_views():
                 )
 
                 # Add the view directly without message binding
-                bot.add_view(ticket_view)  
-                print(f"Added persistent TicketButtonView with ID: {view_id}")
+                bot.add_view(ticket_view) 
 
     except Exception as e:
         print(f"Failed to load persistent views: {e}")
@@ -120,7 +127,6 @@ async def load_persistent_views():
                     if channel:
                         message = await channel.fetch_message(int(message_id))
                         bot.add_view(sell_view, message_id=int(message_id))
-                        print(f"Added persistent Sell view for message: {message.jump_url}")
                     else:
                         print(f"Channel not found for message link: {sell_view.message_link}")
                 except Exception as e:
@@ -142,7 +148,6 @@ async def load_persistent_views():
                     if channel:
                         message = await channel.fetch_message(int(message_id))
                         bot.add_view(buy_view, message_id=int(message_id))
-                        print(f"Added persistent Buy view for message: {message.jump_url}")
                     else:
                         print(f"Channel not found for message link: {buy_view.message_link}")
                 except Exception as e:
@@ -661,7 +666,6 @@ class SellButtonView(discord.ui.View):
                         await message.delete()
                         await interaction.response.send_message("The listing has been successfully delisted.", ephemeral=True)
                         if self.view_id:
-                            print(self.view_id)
                             delete_view_from_db(self.view_id)
                             print(f"Deleted view with ID {self.view_id} from the database.")
                     else:
@@ -834,9 +838,7 @@ class ConfirmSellView(discord.ui.View):
 
         # Convert SellButtonView to a dictionary for saving
         data = self.sell_view.to_dict()
-        save_view(data)  # Save the data in MongoDB
-
-        print("SellButtonView data saved to MongoDB:", data)
+        save_view(data)
 
 class ConfirmBuyView(discord.ui.View):
     def __init__(self, embed, view:BuyButtonView):
@@ -857,11 +859,9 @@ class ConfirmBuyView(discord.ui.View):
         self.buy_view.message_link = message_link
         self.buy_view.user = user
         
-        # Convert SellButtonView to a dictionary for saving
+        
         data = self.buy_view.to_dict()
-        save_view(data)  # Save the data in MongoDB
-
-        print("BuyButtonView data saved to MongoDB:", data)
+        save_view(data)
 
 class TicketButtonView(discord.ui.View):
     def __init__(self, message_link=None, item_name=None, price_input = None,payment=None, type=None, specific = None,quantity=None,collateral=None, view_id = None):
@@ -894,7 +894,6 @@ class TicketButtonView(discord.ui.View):
 
     @discord.ui.button(label="Mark as Sold", style=discord.ButtonStyle.danger, custom_id="mark_as_sold")
     async def mark_as_sold(self, button: discord.ui.Button, interaction: discord.Interaction):
-        print(self.view_id)
         if any(role.id in allowed_roles for role in interaction.user.roles):
             if self.message_link:
                 try:
@@ -929,7 +928,6 @@ class TicketButtonView(discord.ui.View):
                             await interaction.followup.send("The recent-sales channel could not be found.", ephemeral=True)
                         if self.view_id:
                             delete_view_from_db(self.view_id)
-                            print(f"Deleted view with ID {self.view_id} from the database.")
                     else:
                         await interaction.response.send_message("Could not find the channel for the original listing.", ephemeral=True)
                 except Exception as e:
